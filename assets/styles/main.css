@@ -1,0 +1,22 @@
+Panel { 
+   roundedBottomCorners: true;
+   borderAlpha: 1;
+   highlightAlphas: 0.79, 0;
+   borderStyle: solid;
+   headerColors: #e7e7e7, #cccccc;
+   footerColors: #e7e7e7, #c7c7c7;
+   borderColor: #666666;
+   titleStyleName: "myTitleStyle";
+} 
+
+.myTitleStyle {
+   color: #000000;
+   font-weight: bold;
+}
+.focusedButton
+{              
+	borderColor: #FF0000;
+	cornerRadius: 4;
+	themeColor: #FF0000;
+	emphasized: true
+}

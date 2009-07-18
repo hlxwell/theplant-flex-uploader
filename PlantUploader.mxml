@@ -1,0 +1,503 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:Application xmlns:mx="http://www.adobe.com/2006/mxml" 
+	initialize="init(event)" 
+	layout="absolute" 
+	width="490" height="360"
+    backgroundColor="#ffffff"
+    backgroundAlpha="0"> 
+	<mx:Style source="assets/styles/main.css"/>
+	
+	<mx:Script>
+		<![CDATA[
+			import mx.controls.Image;
+			import lib.Picbox;
+			
+			import flash.net.*;
+			import flash.external.*;
+			
+			import mx.events.CollectionEvent;
+			import mx.events.DragEvent;
+			import mx.formatters.NumberFormatter;
+			import mx.events.ChildExistenceChangedEvent;
+			import mx.events.FlexEvent;
+			import mx.collections.ArrayCollection;
+			import mx.events.CollectionEventKind;
+            import mx.controls.Alert;
+            import mx.utils.ObjectUtil;
+           	import mx.formatters.NumberFormatter;
+           	
+           	// define private variables
+           	[Bindable]
+           	private var _picboxs:ArrayCollection;		// picbox collection
+           	private var _uploadURL:URLRequest; 			// upload address
+        	private var _urlParams:URLVariables; 		// variables to passed along to the file upload handler on the server.
+			private var _currentUploadingPicbox:Picbox;	// current uploading picbox
+			private var _paramsHash:Object;				// params hash
+			private var fileReferenceList:FileReferenceList;
+			
+			private var _totalQuota:int;				// total selected files size quota
+			private var _maxFileSize:int; 				// the max upload file size limitation
+			private var _usedQuota:int;					// the space already been used
+			private var _maxFileCount:int;				// the maxium file number user can uploader
+			
+			private var _safeFileLoaderSize:int;		// the maxium file size for file loader, load too much files will slowdown the client
+			private var _isLoadTooMuchFiles:Boolean;	// if load too much files, then do not load pictures anymore
+			
+			// effects
+			//private var _disappear
+			
+			// file filter enumerate
+			public var imageTypes:FileFilter = new FileFilter("Images (*.jpg; *.jpeg; *.gif; *.png)" ,"*.jpg; *.jpeg; *.gif; *.png");
+        	public var videoTypes:FileFilter = new FileFilter("Flash Video Files (*.flv)","*.flv");
+        	public var documentTypes:FileFilter = new FileFilter("Documents (*.pdf), (*.doc), (*.rtf), (*.txt)",("*.pdf; *.doc; *.rtf, *.txt"));
+            
+           	public function init(event:Event):void {
+           		fileReferenceList = new FileReferenceList();
+           		fileReferenceList.addEventListener(Event.SELECT, fileSelected);
+           		
+           		_picboxs = new ArrayCollection([]);
+           		_paramsHash = new Object();
+           		
+           		// init configuration,  "0" means unlimited
+           		_totalQuota = 0;
+           		_maxFileSize = 0;
+           		_isLoadTooMuchFiles = false;
+           		
+           		// Set Up URLRequest
+		        _uploadURL = new URLRequest;
+		        _uploadURL.method = "POST";
+		        _uploadURL.data = _urlParams;
+		        _uploadURL.contentType = "multipart/form-data";
+		        
+		        btn_upload.addEventListener(MouseEvent.CLICK, uploadFiles);
+	        	
+	        	// TODO: I hope to remove picbox from [picTiles:tile and picboxs:array]
+           		picTiles.addEventListener(ChildExistenceChangedEvent.CHILD_REMOVE, deletePicboxFromArrayCollection);
+           		
+           		// add external callback
+           		ExternalInterface.addCallback("addParam", addParam);
+           		ExternalInterface.addCallback("setPostAddress", setPostAddress);
+           		
+           		// call the init function at page
+           		ExternalInterface.call("loadParams");
+           		
+           		// set browse button with red border
+           		this.btn_browse.emphasized = true;
+           		this.btn_browse.styleName = 'focusedButton';
+           		this.btn_browse.addEventListener(MouseEvent.CLICK, browseFile);
+           	}
+           	
+           	//// handle picbox delete ///////////////
+           	private function deletePicboxFromArrayCollection(event:ChildExistenceChangedEvent):void {
+            	_picboxs.removeItemAt(_picboxs.getItemIndex(event.relatedObject));
+           		updateWordsOnProcessbar();
+           	}
+           	/////////////////////////////////////////
+
+            // update picture count and picture size and display it on the process bar
+            private function updateWordsOnProcessbar():void {
+            	var picture_count:String = new String();
+            	var picture_size:String = new String();
+            	
+            	picture_count = "Total Files:" + _picboxs.length.toString();
+            	picture_size = "Total Size:" + getPicboxsTotalSize();
+            	progressbar.label = picture_count + "  " + picture_size;
+            	
+            	updateButtonStatus();
+            }
+            
+            private function updateButtonStatus():void {
+            	if(_picboxs.length > 0) {
+            		btn_upload.enabled = true;
+            		btn_clear.enabled = true;
+            		
+            		btn_upload.emphasized = true;
+           			btn_upload.styleName = 'focusedButton';
+           		
+            		btn_browse.emphasized = false;
+           			btn_browse.styleName = '';
+           			
+            	} else if(_picboxs.length <= 0) {
+            		btn_upload.enabled = false;
+            		btn_clear.enabled = false;
+           			
+            		btn_upload.emphasized = false;
+           			btn_upload.styleName = '';
+           			
+            		btn_browse.emphasized = true;
+           			btn_browse.styleName = 'focusedButton';
+            	}
+            }
+            
+            // get total filesize of files in picboxs
+            private function getPicboxsTotalSize():String {
+            	var i:int;
+            	var totalSize:Number = 0;
+            	var totalSizeNumber:Number;
+            	var sizeUnit:String;
+            	
+            	for(i=0; i < _picboxs.length; i++)
+            	{
+            		totalSize += _picboxs[i].size;
+            	}
+            	
+            	// to judge and select the unit, and get the right file size number
+            	if(totalSize < 1024){
+            		sizeUnit = "Byte";
+            		totalSizeNumber = totalSize;
+            	} else if(totalSize > 1024 && totalSize < 1024*1024) {
+            		sizeUnit = "KB";
+            		totalSizeNumber = totalSize/1024;            		
+            	} else if(totalSize > 1024*1024) {
+            		sizeUnit = "MB";
+            		totalSizeNumber = totalSize/(1024*1024);
+            	}
+            	
+            	var nf:NumberFormatter=new NumberFormatter();
+				nf.precision=2;
+            	return (nf.format(totalSizeNumber)).toString() + " " + sizeUnit;
+            }
+            
+            // get total filesize of files in picboxs
+            private function getPicboxsTotalSizeNumber():int {
+            	var i:int;
+            	var totalSize:Number = 0;
+            	
+            	for(i=0; i < _picboxs.length; i++)
+            	{
+            		totalSize += _picboxs[i].size;
+            	}
+            	
+            	return totalSize;
+            }
+            
+            //// button handler //////////////////////////////////////////////
+            // browser files
+            private function browseFile(event:MouseEvent):void {
+                var arr:Array = [];
+                arr.push(imageTypes);
+                fileReferenceList.browse(arr);
+            }
+
+			// after select files
+            private function fileSelected(event:Event):void {
+            	var i:int;
+            	var picbox:Picbox;
+            	var oversizeFiles:Array = new Array();
+	        	
+	        	// add selected file into file list
+            	for(i=0; i < fileReferenceList.fileList.length; i++)
+            	{
+            		// 1. check total selected file count. 
+            		if( _picboxs.length >= _maxFileCount) {
+						mx.controls.Alert.show("You can only upload "+ _maxFileCount.toString() +" Files once time.","Selected Too Many Files", 4, null).clipContent;
+            			break;
+            		}
+            		
+            		// 2. check total selected file size. 
+            		if(this.getPicboxsTotalSizeNumber() > this._safeFileLoaderSize) {
+            			_isLoadTooMuchFiles = true;
+            		} else {
+            			_isLoadTooMuchFiles = false;
+            		}
+            		
+            		// 3. check if file is bigger than _eachFileSizeLimit, if not, add it to list.
+            		if(fileReferenceList.fileList[i].size <= _maxFileSize || _maxFileSize == 0) {
+	            		picbox = new Picbox(fileReferenceList.fileList[i], _isLoadTooMuchFiles);
+	            		_picboxs.addItem(picbox);
+	            		picTiles.addChild(picbox);
+	            	} else {
+	            		oversizeFiles.push(fileReferenceList.fileList[i]);
+            		}
+            	}
+            	
+            	// alert the oversized files
+            	if (oversizeFiles.length > 0) {
+            		var msg:String = new String();
+            		
+	            	for (i=0; i < oversizeFiles.length; i++){
+	            		msg += String(oversizeFiles[i].name + " is too large. \n");
+	            	}
+	            	mx.controls.Alert.show(msg + "Max File Size is: " + Math.round(_maxFileSize / 1024) + " kb","File Too Large", 4, null).clipContent;
+	            }
+            	
+            	// switch viewstack to list mode
+            	if (_isLoadTooMuchFiles && this.mainViewStack.selectedIndex != 1) {
+            		Alert.show("You have loaded too much files, So now it switch to simple mode!", "Switch to simple mode Alert");
+            		clearThumbnailForPicboxs();
+            		this.mainViewStack.selectedIndex = 1; // switch to data grid mode
+            	} else if(_isLoadTooMuchFiles) {
+            		clearThumbnailForPicboxs();
+            	}
+            	
+            	updateWordsOnProcessbar();
+            }
+            
+            private function clearThumbnailForPicboxs():void {
+            	var i:int;
+            	for(i = 0; i < this._picboxs.length; i++) {
+            		(_picboxs[i] as Picbox).unloadLoadedFile();
+            	}
+            }
+            
+            // clear all picboxs
+            private function clearPicTiles(event:Event):void {
+            	// 1. clear all thumbnail
+            	clearThumbnailForPicboxs();
+            	// 2. remove event will help you to remove picbox from _picboxs also
+            	picTiles.removeAllChildren();
+             	// 3. set _isLoadTooMuchFiles FALSE
+             	_isLoadTooMuchFiles = false;
+             	
+            	updateWordsOnProcessbar();
+            	     	
+            	// switch back to tile list mode
+            	this.mainViewStack.selectedIndex = 0;
+            }
+            
+            // start to upload files
+            private function uploadFiles(event:Event):void {
+            	setEnableAllPicboxsButton(false);
+            	
+            	var resetQuota:int = _totalQuota - _usedQuota;
+				var selectedFileSize:int = getPicboxsTotalSizeNumber();
+				
+				if(selectedFileSize > resetQuota){
+            		mx.controls.Alert.show("The File upload quota is " + Math.round(_totalQuota / 1024) + " kb, you have uploaded "+ Math.round(_usedQuota / 1024) + "kb, so you can only upload " + Math.round((_totalQuota -_usedQuota) / 1024) + "kb, but you selected " + Math.round(selectedFileSize / 1024) + "kb files.","Selected Too Many Files", 4, null).clipContent;
+            	} else if(_picboxs.length > 0) {
+            		_currentUploadingPicbox = _picboxs.getItemAt(0) as Picbox;
+	                _currentUploadingPicbox.getFileReference().addEventListener(ProgressEvent.PROGRESS, progressHandler); // prograssing
+	                _currentUploadingPicbox.getFileReference().addEventListener(Event.COMPLETE, completeHandler); // upload complete
+	                
+	                // error handling
+	                _currentUploadingPicbox.getFileReference().addEventListener(SecurityErrorEvent.SECURITY_ERROR,securityErrorHandler);
+	                _currentUploadingPicbox.getFileReference().addEventListener(HTTPStatusEvent.HTTP_STATUS,httpStatusHandler);
+	                _currentUploadingPicbox.getFileReference().addEventListener(IOErrorEvent.IO_ERROR,ioErrorHandler);
+	                
+	                // go upload
+	                addParam("degrees", _currentUploadingPicbox.rotationDegrees.toString());
+	                _currentUploadingPicbox.upload(_uploadURL);
+	                setupCancelButton(true);
+        		}
+            }
+            ///////////////////////////////////////////////////
+            
+            ///// error handler /////
+            //  after a file upload is complete or attemted the server will return an http status code, code 200 means all is good anything else is bad.
+	        private function httpStatusHandler(event:HTTPStatusEvent):void {
+	            if (event.status != 200){
+	                mx.controls.Alert.show(String(event),"Error",0);
+	            }
+	        }
+	        
+	        // only called if there is an  error detected by flash player browsing or uploading a file   
+	        private function ioErrorHandler(event:IOErrorEvent):void{
+	            mx.controls.Alert.show(String(event),"ioError",0);
+	        }
+	         
+	        // only called if a security error detected by flash player such as a sandbox violation
+	        private function securityErrorHandler(event:SecurityErrorEvent):void{
+	            mx.controls.Alert.show(String(event),"Security Error",0);
+	        }
+        
+            /////////////////////////
+            /////uploading process //////////////////////////////////
+	        // called during the file upload of each file being uploaded | we use this to feed the progress bar its data
+	        private function progressHandler(event:ProgressEvent):void {
+	        	// make the uploading picbox transplant effect
+	            _currentUploadingPicbox.alpha = 1 - event.bytesLoaded/event.bytesTotal + 0.2;
+	            
+	            progressbar.setProgress(event.bytesLoaded, event.bytesTotal);
+	            progressbar.label = "Uploading " + Math.round(event.bytesLoaded / 1024) + "/" + Math.round(event.bytesTotal / 1024) + " kb ";
+	            
+	            if(_picboxs.length == 1) {
+	            	progressbar.label += " This is the last file!";
+	            } else {
+	            	progressbar.label += (_picboxs.length) + " files remaining"; // add remain files count
+	            }
+	            
+	            if(event.bytesLoaded == event.bytesTotal) {
+	            	progressbar.label = "Processing Image, please wait!"
+	            }
+	        } 
+	        
+	        // called after a file has been successully uploaded, we use this as well to check if there are any files left to upload and how to handle it
+	        private function completeHandler(event:Event):void{
+	        	// remove all, free the memory
+	        	(_picboxs.getItemAt(0) as Picbox).unloadLoadedFile();
+				picTiles.removeChild(_picboxs.getItemAt(0) as Picbox);
+	            
+	            // not upload all files yet
+	            if (_picboxs.length > 0){
+	                uploadFiles(null);
+	            } else {
+	            	// uploaded all files
+	                finishUpload();
+	            }
+	        }
+	        
+	        private function finishUpload():void {
+	        	setupCancelButton(false);
+                progressbar.label = "Upload Completed! Click \"Close Windows\" button to check what you've uploaded.";
+                var uploadCompleted:Event = new Event(Event.COMPLETE);
+                dispatchEvent(uploadCompleted);
+                
+                this.btn_browse.label = "Close Window";
+                this.btn_browse.toolTip = "Click \"Close Windows\" button to check what you've uploaded."; 
+                this.btn_browse.removeEventListener(MouseEvent.CLICK, browseFile);
+                this.btn_browse.addEventListener(MouseEvent.CLICK, function():void {
+                	ExternalInterface.call("windowCloseHandler");
+                });
+                
+                var alertImg:Image = new Image();
+                alertImg.source = "images/upload_complete.jpg";
+                alertImg.width = 435;
+                alertImg.height = 240;
+                
+                this.picTiles.horizontalScrollPolicy = "false";
+                this.picTiles.verticalScrollPolicy = "false";
+                this.picTiles.addChild(alertImg);
+                
+                this.buttonBox.removeChild(btn_clear);
+                this.buttonBox.removeChild(btn_upload);
+	        }
+            ///////////////////////////////////////////////////////
+            
+            
+	        // toggle upload button label and function to trigger file uploading or upload cancelling
+	        private function setupCancelButton(x:Boolean):void{
+	            if (x == true){
+	                btn_upload.label = "Cancel";
+	                btn_browse.enabled = false;
+	                btn_clear.enabled = false;
+	                btn_upload.removeEventListener(MouseEvent.CLICK, uploadFiles);
+	                btn_upload.addEventListener(MouseEvent.CLICK, cancelFileIO);        
+	            } else if (x == false){
+	            	btn_upload.label = "Upload";
+	                btn_browse.enabled = true;
+	                if(_picboxs.length > 0) {
+	                	btn_upload.enabled = true;
+	                	btn_clear.enabled = true;
+	                	btn_upload.removeEventListener(MouseEvent.CLICK, cancelFileIO);
+	                	btn_upload.addEventListener(MouseEvent.CLICK, uploadFiles);
+	                	setEnableAllPicboxsButton(true);
+	                } else {
+	                	btn_upload.enabled = false;
+	                	btn_clear.enabled = false;
+	                	btn_upload.removeEventListener(MouseEvent.CLICK, cancelFileIO);
+	                	btn_upload.addEventListener(MouseEvent.CLICK, uploadFiles);
+	                	resetProgressBar();
+	                }
+	                progressbar.minimum = 0;
+		            progressbar.maximum = 0;
+	            }
+	        }
+	        
+	        // Cancel Current File Upload
+	        private function cancelFileIO(event:Event):void{
+	            _currentUploadingPicbox.cancelUploading();
+	            updateWordsOnProcessbar();
+	            resetPicboxsAlpha();
+	            setupCancelButton(false);
+	        }
+	        
+	        private function resetPicboxsAlpha():void {
+	        	for (var i:int = 0; i < _picboxs.length; i++)
+				{
+				    _picboxs[i].alpha = 1;
+				}
+	        }
+	        
+	        // restores progress bar back to normal
+	        private function resetProgressBar():void {
+                 progressbar.label = "Please select files!";
+                 progressbar.maximum = 0;
+                 progressbar.minimum = 0;
+	        } 
+	        
+	        private function setEnableAllPicboxsButton(x:Boolean):void {
+	        	for (var i:int = 0; i < _picboxs.length; i++)
+				{
+				    _picboxs[i].setEnableAllButtons(x);
+				}
+	        }
+	        
+	        private function addParam(key:String, value:String):void {
+	        	if(key == "max_file_size") {
+	        		_maxFileSize = parseInt(value);
+	        	} else if(key == "total_quota") {
+	        		_totalQuota = parseInt(value);
+	        	} else if(key == "used_quota") {
+	        		_usedQuota = parseInt(value);
+	        	} else if(key == "max_file_count") {
+	        		_maxFileCount = parseInt(value);
+	        	} else if(key == "safe_file_loader_size") {
+	        		_safeFileLoaderSize = parseInt(value);
+	        	} else {
+	           		_paramsHash[key] = value;
+	           		_urlParams = new URLVariables(hash2string(_paramsHash));
+	           		_uploadURL.data = _urlParams;
+	        	}
+	        }
+	        
+	        private function setPostAddress(url:String):void {
+	        	_uploadURL.url = url;
+	        }
+	        
+	        private function hash2string(hash:Object):String {
+	        	var returnStr:String = "";
+	        	for (var key:Object in hash)
+				{
+				    returnStr += (key + "=" + hash[key] + "&");
+				}
+				
+				return returnStr.substring(0, returnStr.length-1);
+	        }
+	        
+	        //DISABLED for this button has been removed.
+	        private function changeViewStack(event:Event):void {
+	        	if(this.mainViewStack.selectedIndex == 0) {
+	        		this.mainViewStack.selectedIndex = 1;
+	        	} else {
+	        		this.mainViewStack.selectedIndex = 0;
+	        	}
+	        }
+		]]>
+	</mx:Script>
+	
+	<mx:Panel width="485" height="350" layout="vertical" title="Add pictures" verticalAlign="top" horizontalAlign="center" top="0" left="0">
+		<mx:ViewStack id="mainViewStack" width="100%" height="100%">
+			<mx:Tile id='picTiles'
+					direction="horizontal"
+	                horizontalGap="5" 
+	                verticalGap="5" 
+	                paddingTop="5" 
+	                paddingBottom="5" 
+	                paddingLeft="5" 
+	                paddingRight="5" 
+	                width="100%" 
+	                height="100%">
+	        </mx:Tile>
+	        
+	        <mx:VBox>
+	        	<mx:DataGrid id="filelistDG" dataProvider="{_picboxs}" width="100%" height="100%">
+					<mx:columns>
+						<mx:DataGridColumn headerText="File name" dataField="filename"/>
+						<mx:DataGridColumn headerText="Size" dataField="filesize" width="80"/>
+					</mx:columns>
+				</mx:DataGrid>
+	        </mx:VBox>
+		</mx:ViewStack>
+		
+        <mx:ProgressBar id="progressbar" labelPlacement="center" label="Select files. You can select multiple files at once by using the &quot;Shift&quot; key." trackHeight="15" width="100%" height="20" minimum="0" maximum="100" mode="manual"/>
+		<mx:ControlBar>
+	        <mx:Spacer width="100%"/>
+            <mx:HBox id="buttonBox">
+                <mx:Button label="Select files" id="btn_browse" toolTip="Click to choose files you will upload."/>
+                <mx:Button label="Upload" id="btn_upload" enabled="false" toolTip="Start upload!"/>
+                <mx:Button label="Clear All" id="btn_clear" click="clearPicTiles(event)" enabled="false" toolTip="Clear all pictures in the list, and switch to Nomal mode."/>
+            </mx:HBox>
+        </mx:ControlBar>
+	</mx:Panel>
+	
+</mx:Application>
