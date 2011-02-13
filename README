@@ -1,16 +1,19 @@
 =========  README  ==========
-  This is a flex uploader program, it has below features:
-  1. Multi-select files.
-  2. Uploading progress bar.
-  3. Preview image thumb before uploading.
-  4. Enable rotation picture and send rotation degree when uploading.
-  5. Quota setting support.
-  6. Javascript configurable.
 
-======= how to use ==========
-  There is several javascript callback functions have to be setted.
-  below is the sample.
-  
+This is a flex uploader program, it has following features:
+1. Multi-select files.
+2. Uploading progress bar.
+3. Preview image thumb before uploading.
+4. Enable rotation picture and send rotation degree when uploading.
+5. Quota setting support.
+6. Javascript configurable.
+
+======= How to use ==========
+
+  There are several JavaScript callback functions which have to be set.
+
+  A quick sample: 
+
   <script language=javascript>
     // after flex is initialized, it will load some settings by invoking this function.
   	function loadParams() {
@@ -21,11 +24,11 @@
   		addParam('user_id','<%=current_user.id %>');
 		
   		// necessary config
-  		addParam('used_quota',0*1024*1024);							// set user already used space
+  		addParam('used_quota',0*1024*1024);	      			        // set user already used space
   		addParam('total_quota',5000*1024*1024);					// the space quota
   		addParam('max_file_size',10*1024*1024);					// max size for each file
-  		addParam('safe_file_loader_size',1024*1024*10); // above this size, uploader will switch to simple mode.
-  		addParam('max_file_count','100'); 							// only can upload max file count of pictures.
+  		addParam('safe_file_loader_size',1024*1024*10);                         // above this size, uploader will switch to simple mode.
+  		addParam('max_file_count','100'); 					// only can upload max file count of pictures.
   	}
 	
 	  // after user clicked the finish button, this event will be invoked.
@@ -52,4 +55,4 @@
   	}
   </script>
   
-  Actually you can check the PlantUploader.html in the bin directory. or you can check the effect at www.piqshare.com
+  Actually, you can verify it by testing PlantUploader.html in the bin directory or you can verify the effect at www.piqshare.com.
