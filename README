@@ -1,20 +1,21 @@
-=========  README  ==========
+# README 
 
 This is a flex uploader program, it has following features:
+
 1. Multi-select files.
-2. Uploading progress bar.
-3. Preview image thumb before uploading.
-4. Enable rotation picture and send rotation degree when uploading.
-5. Quota setting support.
-6. Javascript configurable.
+1. Uploading progress bar.
+1. Preview image thumb before uploading.
+1. Enable rotation picture and send rotation degree when uploading.
+1. Quota setting support.
+1. Javascript configurable.
 
-======= How to use ==========
+## How to use 
 
-  There are several JavaScript callback functions which have to be set.
+There are several JavaScript callback functions which have to be set.
 
-  A quick sample: 
+A quick sample: 
 
-  <script language=javascript>
+     <script language=javascript>
     // after flex is initialized, it will load some settings by invoking this function.
   	function loadParams() {
   		setPostAddress("/upload");
@@ -53,6 +54,6 @@ This is a flex uploader program, it has following features:
   			document["PlantUploader"].setPostAddress(url);
   		}
   	}
-  </script>
+    </script>
   
-  Actually, you can verify it by testing PlantUploader.html in the bin directory or you can verify the effect at www.piqshare.com.
+Actually, you can verify it by testing PlantUploader.html in the bin directory or you can verify the effect at www.piqshare.com.
